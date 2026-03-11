@@ -36,6 +36,7 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           NODE_ENV: production
+          NUXT_PUBLIC_DEVTOOLS: false
       
       - name: Setup Pages
         uses: actions/configure-pages@v4

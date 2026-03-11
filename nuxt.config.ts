@@ -1,9 +1,9 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2024-04-03',
-  // devtools는 개발 환경에서만 활성화 (프로덕션에서는 비활성화)
+  // devtools는 개발 환경에서만 활성화 (프로덕션 빌드에서는 자동으로 비활성화됨)
   devtools: { 
-    enabled: false
+    enabled: true // 개발 모드에서는 활성화, generate 시 자동으로 비활성화
   },
   css: ['~/assets/css/main.css'],
   runtimeConfig: {
