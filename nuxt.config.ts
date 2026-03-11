@@ -23,6 +23,9 @@ export default defineNuxtConfig({
     }
   },
   ssr: false, // GitHub Pages는 정적 사이트만 지원하므로 SPA 모드로 설정
+  devtools: {
+    enabled: false // 프로덕션 빌드에서 devtools 비활성화
+  },
   nitro: {
     prerender: {
       routes: ['/']
