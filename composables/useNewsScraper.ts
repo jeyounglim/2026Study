@@ -223,13 +223,14 @@ ${textToAnalyze}
     }
 
     const searchQueries: string[] = []
-
+    // 단일 키워드들을 먼저 추가 (각 키워드별로 개별 검색)
     keywords.forEach(keyword => {
       if (keyword && keyword.length > 0) {
         searchQueries.push(keyword)
       }
     })
 
+    // 키워드 조합도 추가
     if (keywords.length >= 2) {
       searchQueries.push(keywords.slice(0, 2).join(' '))
       if (keywords.length >= 3) {

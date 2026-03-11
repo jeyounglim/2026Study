@@ -219,12 +219,25 @@
 </template>
 
 <script setup lang="ts">
+interface Article {
+  title: string
+  description: string
+  url: string
+  matchedKeyword: string
+}
+
+interface News {
+  title: string
+  description: string
+  url: string
+}
+
 const newsUrl = ref('')
 const loading = ref(false)
 const error = ref('')
-const currentNews = ref(null)
-const keywords = ref([])
-const relatedArticles = ref([])
+const currentNews = ref<News | null>(null)
+const keywords = ref<string[]>([])
+const relatedArticles = ref<Article[]>([])
 const selectedKeyword = ref('')
 
 // 선택된 키워드로 필터링된 기사
@@ -232,27 +245,44 @@ const filteredArticles = computed(() => {
   if (!selectedKeyword.value) {
     return relatedArticles.value
   }
-  return relatedArticles.value.filter(article => 
-    article.matchedKeyword === selectedKeyword.value
-  )
+  // matchedKeyword에 선택된 키워드가 포함되어 있는지 확인
+  // (단일 키워드 또는 키워드 조합 모두 매칭)
+  return relatedArticles.value.filter(article => {
+    if (!article.matchedKeyword) return false
+    // 정확히 일치하거나, 키워드가 포함되어 있는지 확인
+    const matched = article.matchedKeyword === selectedKeyword.value ||
+                    article.matchedKeyword.includes(selectedKeyword.value)
+    return matched
+  })
 })
 
-// 고유한 키워드 목록 추출
+// 고유한 키워드 목록 추출 (단일 키워드만)
 const uniqueKeywords = computed(() => {
-  const keywords = new Set()
+  const keywordSet = new Set<string>()
   relatedArticles.value.forEach(article => {
     if (article.matchedKeyword) {
-      keywords.add(article.matchedKeyword)
+      // matchedKeyword가 여러 키워드 조합일 수 있으므로 분리
+      const matchedKeywords = article.matchedKeyword.split(' ')
+      matchedKeywords.forEach(kw => {
+        if (kw && kw.length > 0) {
+          keywordSet.add(kw.trim())
+        }
+      })
     }
   })
-  return Array.from(keywords).sort()
+  // 실제 추출된 키워드 목록과 교집합 (표시된 키워드만)
+  return Array.from(keywordSet)
+    .filter(kw => keywords.value.includes(kw))
+    .sort()
 })
 
 // 특정 키워드로 찾은 기사 개수
-const getKeywordCount = (keyword) => {
-  return relatedArticles.value.filter(article => 
-    article.matchedKeyword === keyword
-  ).length
+const getKeywordCount = (keyword: string) => {
+  return relatedArticles.value.filter(article => {
+    if (!article.matchedKeyword) return false
+    return article.matchedKeyword === keyword || 
+           article.matchedKeyword.includes(keyword)
+  }).length
 }
 
 const { scrapeNews: scrapeNewsFromComposable } = useNewsScraper()

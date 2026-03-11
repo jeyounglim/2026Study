@@ -1,10 +1,10 @@
 export default {
-  "_CEMeaYro.js": {
+  "_AbE8lyEx.js": {
     "resourceType": "script",
     "module": true,
     "prefetch": true,
     "preload": true,
-    "file": "CEMeaYro.js",
+    "file": "AbE8lyEx.js",
     "name": "v3",
     "imports": [
       "node_modules/nuxt/dist/app/entry.js"
@@ -15,13 +15,13 @@ export default {
     "module": true,
     "prefetch": true,
     "preload": true,
-    "file": "BTDdFk96.js",
+    "file": "BMIqO-T-.js",
     "name": "error-404",
     "src": "node_modules/nuxt/dist/app/components/error-404.vue",
     "isDynamicEntry": true,
     "imports": [
       "node_modules/nuxt/dist/app/entry.js",
-      "_CEMeaYro.js"
+      "_AbE8lyEx.js"
     ],
     "css": [
       "error-404.MksMKVWr.css"
@@ -38,13 +38,13 @@ export default {
     "module": true,
     "prefetch": true,
     "preload": true,
-    "file": "n7wtIBTw.js",
+    "file": "Q20vX5bp.js",
     "name": "error-500",
     "src": "node_modules/nuxt/dist/app/components/error-500.vue",
     "isDynamicEntry": true,
     "imports": [
       "node_modules/nuxt/dist/app/entry.js",
-      "_CEMeaYro.js"
+      "_AbE8lyEx.js"
     ],
     "css": [
       "error-500.DOWD7OuR.css"
@@ -61,7 +61,7 @@ export default {
     "module": true,
     "prefetch": true,
     "preload": true,
-    "file": "Dc7AvyA0.js",
+    "file": "C7yLebg-.js",
     "name": "entry",
     "src": "node_modules/nuxt/dist/app/entry.js",
     "isEntry": true,
@@ -84,7 +84,7 @@ export default {
     "module": true,
     "prefetch": true,
     "preload": true,
-    "file": "LF4HG9Dg.js",
+    "file": "DmNyT4aY.js",
     "name": "index",
     "src": "pages/index.vue",
     "isDynamicEntry": true,
