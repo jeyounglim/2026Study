@@ -1,7 +1,10 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2024-04-03',
-  devtools: { enabled: true },
+  // devtools는 개발 환경에서만 활성화 (프로덕션에서는 비활성화)
+  devtools: { 
+    enabled: false
+  },
   css: ['~/assets/css/main.css'],
   runtimeConfig: {
     // 서버 사이드에서만 접근 가능한 환경 변수
@@ -23,9 +26,6 @@ export default defineNuxtConfig({
     }
   },
   ssr: false, // GitHub Pages는 정적 사이트만 지원하므로 SPA 모드로 설정
-  devtools: {
-    enabled: false // 프로덕션 빌드에서 devtools 비활성화
-  },
   nitro: {
     prerender: {
       routes: ['/']
