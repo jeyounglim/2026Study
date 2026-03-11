@@ -684,6 +684,7 @@ ${textToAnalyze}
       console.log('📄 추출된 본문 길이:', articleContent.length)
 
       const groqApiKey = config.public.groqApiKey || ''
+      console.log('🔑 GROQ API 키 확인:', groqApiKey ? '✅ 설정됨' : '❌ 설정되지 않음')
       let keywords: string[]
 
       if (articleContent && articleContent.length > 100) {
