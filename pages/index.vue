@@ -255,6 +255,8 @@ const getKeywordCount = (keyword) => {
   ).length
 }
 
+const { scrapeNews: scrapeNewsFromComposable } = useNewsScraper()
+
 const scrapeNews = async () => {
   if (!newsUrl.value) return
 
@@ -266,10 +268,7 @@ const scrapeNews = async () => {
   selectedKeyword.value = '' // 정렬 초기화
 
   try {
-    const response = await $fetch('/api/scrape', {
-      method: 'POST',
-      body: { url: newsUrl.value }
-    })
+    const response = await scrapeNewsFromComposable(newsUrl.value)
 
     currentNews.value = response.currentNews
     keywords.value = response.keywords || []
@@ -278,7 +277,7 @@ const scrapeNews = async () => {
     // 디버깅용 로그
     console.log('API 응답:', response)
     console.log('관련 기사 개수:', relatedArticles.value.length)
-  } catch (err) {
+  } catch (err: any) {
     error.value = err.message || '뉴스를 가져오는 중 오류가 발생했습니다.'
     console.error(err)
   } finally {
