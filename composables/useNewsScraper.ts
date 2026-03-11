@@ -627,38 +627,46 @@ ${textToAnalyze}
         console.log('🔑 추출된 키워드:', keywords)
       }
 
+      // 1단계: 초기 키워드로 관련 기사 검색
       const initialArticles = await searchRelatedArticles(keywords, url, title, 50, groqApiKey)
       console.log('📰 초기 관련 기사 개수:', initialArticles.length)
 
+      // 2단계: 관련 기사에서 자주 등장하는 키워드만 필터링
       const filteredKeywords = filterKeywordsByFrequency(keywords, initialArticles)
       console.log('🔑 필터링된 키워드:', filteredKeywords)
+      console.log('🔑 원래 키워드:', keywords)
 
-      // 필터링된 키워드가 있고, 원래 키워드와 다르면 필터링된 키워드로 다시 검색
+      // 3단계: 필터링된 키워드로 항상 재검색 (더 정확한 결과를 위해)
       let relatedArticles = initialArticles
-      const keywordsChanged = filteredKeywords.length > 0 && 
-        (filteredKeywords.length !== keywords.length || 
-         !filteredKeywords.every((k, i) => k === keywords[i]))
       
-      if (keywordsChanged) {
+      if (filteredKeywords.length > 0) {
         console.log('🔄 필터링된 키워드로 재검색 시작...')
-        relatedArticles = await searchRelatedArticles(filteredKeywords, url, title, 50, groqApiKey)
-        console.log('📰 필터링된 키워드로 찾은 관련 기사 개수:', relatedArticles.length)
-        
-        // 필터링된 키워드로 찾은 기사가 적으면 초기 결과와 병합
-        if (relatedArticles.length < 10 && initialArticles.length > 0) {
-          console.log('⚠️ 필터링된 키워드로 찾은 기사가 적어 초기 결과와 병합')
-          const existingUrls = new Set(relatedArticles.map(a => a.url))
-          const additionalArticles = initialArticles.filter(a => !existingUrls.has(a.url))
-          relatedArticles = [...relatedArticles, ...additionalArticles].slice(0, 50)
-        }
-      } else if (filteredKeywords.length > 0) {
-        // 필터링된 키워드가 있지만 원래 키워드와 같으면 필터링된 키워드로 한 번 더 검색 (더 정확한 결과)
-        console.log('🔄 필터링된 키워드로 정확도 향상을 위한 재검색...')
         const refinedArticles = await searchRelatedArticles(filteredKeywords, url, title, 50, groqApiKey)
+        console.log('📰 필터링된 키워드로 찾은 관련 기사 개수:', refinedArticles.length)
+        
         if (refinedArticles.length > 0) {
+          // 필터링된 키워드로 찾은 기사가 있으면 우선 사용
           relatedArticles = refinedArticles
-          console.log('📰 재검색으로 찾은 관련 기사 개수:', relatedArticles.length)
+          
+          // 필터링된 키워드로 찾은 기사가 적으면 초기 결과와 병합
+          if (refinedArticles.length < 20 && initialArticles.length > 0) {
+            console.log('⚠️ 필터링된 키워드로 찾은 기사가 적어 초기 결과와 병합')
+            const existingUrls = new Set(refinedArticles.map(a => a.url))
+            const additionalArticles = initialArticles
+              .filter(a => !existingUrls.has(a.url))
+              .slice(0, 30) // 최대 30개만 추가
+            relatedArticles = [...refinedArticles, ...additionalArticles].slice(0, 50)
+            console.log('📰 병합 후 총 기사 개수:', relatedArticles.length)
+          }
+        } else {
+          console.log('⚠️ 필터링된 키워드로 기사를 찾지 못해 초기 결과 사용')
+          // 필터링된 키워드로 기사를 찾지 못했으면 초기 결과 사용
+          relatedArticles = initialArticles
         }
+      } else {
+        console.log('⚠️ 필터링된 키워드가 없어 초기 결과 사용')
+        // 필터링된 키워드가 없으면 초기 결과 사용
+        relatedArticles = initialArticles
       }
 
       return {
