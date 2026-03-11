@@ -1,0 +1,1 @@
+export { default } from "file:///C:/news-scraper/2026Study/node_modules/@nuxt/vite-builder/dist/runtime/client.manifest.mjs"

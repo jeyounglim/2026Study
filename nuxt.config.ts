@@ -1,0 +1,20 @@
+// https://nuxt.com/docs/api/configuration/nuxt-config
+export default defineNuxtConfig({
+  compatibilityDate: '2024-04-03',
+  devtools: { enabled: true },
+  css: ['~/assets/css/main.css'],
+  runtimeConfig: {
+    // 서버 사이드에서만 접근 가능한 환경 변수
+    groqApiKey: process.env.GROQ_API_KEY || '',
+  },
+  app: {
+    head: {
+      title: '뉴스 스크래퍼',
+      meta: [
+        { charset: 'utf-8' },
+        { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+        { name: 'description', content: '뉴스 URL을 입력하면 관련 기사를 찾아드립니다' }
+      ]
+    }
+  }
+})
