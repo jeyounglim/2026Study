@@ -218,7 +218,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 const newsUrl = ref('')
 const loading = ref(false)
 const error = ref('')
