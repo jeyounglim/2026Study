@@ -1,4 +1,4 @@
-{
+globalThis.__timing__.logStart('Load chunks/build/client.manifest');const client_manifest = {
   "_CEMeaYro.js": {
     "resourceType": "script",
     "module": true,
@@ -101,4 +101,7 @@
     "prefetch": true,
     "preload": true
   }
-}
+};
+
+export { client_manifest as default };;globalThis.__timing__.logEnd('Load chunks/build/client.manifest');
+//# sourceMappingURL=client.manifest.mjs.map

@@ -1,10 +1,10 @@
 export default {
-  "_j8hyI3gp.js": {
+  "_CEMeaYro.js": {
     "resourceType": "script",
     "module": true,
     "prefetch": true,
     "preload": true,
-    "file": "j8hyI3gp.js",
+    "file": "CEMeaYro.js",
     "name": "v3",
     "imports": [
       "node_modules/nuxt/dist/app/entry.js"
@@ -15,15 +15,17 @@ export default {
     "module": true,
     "prefetch": true,
     "preload": true,
-    "file": "Cn05pHAZ.js",
+    "file": "BTDdFk96.js",
     "name": "error-404",
     "src": "node_modules/nuxt/dist/app/components/error-404.vue",
     "isDynamicEntry": true,
     "imports": [
       "node_modules/nuxt/dist/app/entry.js",
-      "_j8hyI3gp.js"
+      "_CEMeaYro.js"
     ],
-    "css": []
+    "css": [
+      "error-404.MksMKVWr.css"
+    ]
   },
   "error-404.MksMKVWr.css": {
     "file": "error-404.MksMKVWr.css",
@@ -36,15 +38,17 @@ export default {
     "module": true,
     "prefetch": true,
     "preload": true,
-    "file": "BkVqjYOJ.js",
+    "file": "n7wtIBTw.js",
     "name": "error-500",
     "src": "node_modules/nuxt/dist/app/components/error-500.vue",
     "isDynamicEntry": true,
     "imports": [
       "node_modules/nuxt/dist/app/entry.js",
-      "_j8hyI3gp.js"
+      "_CEMeaYro.js"
     ],
-    "css": []
+    "css": [
+      "error-500.DOWD7OuR.css"
+    ]
   },
   "error-500.DOWD7OuR.css": {
     "file": "error-500.DOWD7OuR.css",
@@ -57,7 +61,7 @@ export default {
     "module": true,
     "prefetch": true,
     "preload": true,
-    "file": "Dt5zb2zb.js",
+    "file": "Dc7AvyA0.js",
     "name": "entry",
     "src": "node_modules/nuxt/dist/app/entry.js",
     "isEntry": true,
@@ -65,24 +69,34 @@ export default {
       "node_modules/nuxt/dist/app/components/error-404.vue",
       "node_modules/nuxt/dist/app/components/error-500.vue"
     ],
-    "_globalCSS": true
+    "css": [
+      "entry.D_FDLWG5.css"
+    ]
+  },
+  "entry.D_FDLWG5.css": {
+    "file": "entry.D_FDLWG5.css",
+    "resourceType": "style",
+    "prefetch": true,
+    "preload": true
   },
   "pages/index.vue": {
     "resourceType": "script",
     "module": true,
     "prefetch": true,
     "preload": true,
-    "file": "DanZokIT.js",
+    "file": "LF4HG9Dg.js",
     "name": "index",
     "src": "pages/index.vue",
     "isDynamicEntry": true,
     "imports": [
       "node_modules/nuxt/dist/app/entry.js"
     ],
-    "css": []
+    "css": [
+      "index.Bkrs8-kx.css"
+    ]
   },
-  "index.DjY3bmSb.css": {
-    "file": "index.DjY3bmSb.css",
+  "index.Bkrs8-kx.css": {
+    "file": "index.Bkrs8-kx.css",
     "resourceType": "style",
     "prefetch": true,
     "preload": true

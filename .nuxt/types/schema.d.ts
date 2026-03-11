@@ -66,7 +66,7 @@ declare module 'nuxt/schema' {
    },
   }
   interface PublicRuntimeConfig {
-
+   groqApiKey: string,
   }
 }
 declare module 'vue' {
