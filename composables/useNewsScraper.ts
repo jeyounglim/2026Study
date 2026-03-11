@@ -415,36 +415,83 @@ ${textToAnalyze}
 
     try {
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 10000)
+      const timeoutId = setTimeout(() => controller.abort(), 15000)
 
-      // CORS 프록시 사용 (필요시)
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
-      let response: Response
-      let html: string
+      let html: string = ''
 
+      // 여러 프록시 옵션
+      const proxyServices = [
+        {
+          name: 'allorigins',
+          url: `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+          parser: async (response: Response) => {
+            const data = await response.json()
+            return data.contents || ''
+          }
+        },
+        {
+          name: 'codetabs',
+          url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+          parser: async (response: Response) => {
+            return await response.text()
+          }
+        },
+        {
+          name: 'corsproxy',
+          url: `https://corsproxy.io/?${encodeURIComponent(url)}`,
+          parser: async (response: Response) => {
+            return await response.text()
+          }
+        }
+      ]
+
+      // 먼저 직접 fetch 시도
       try {
-        // 먼저 직접 fetch 시도
-        response = await fetch(url, {
+        const directResponse = await fetch(url, {
+          mode: 'cors',
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
           },
           signal: controller.signal
         })
-        html = await response.text()
-      } catch (corsError) {
-        // CORS 오류 시 프록시 사용
-        console.log('CORS 오류 발생, 프록시 사용:', corsError)
-        const proxyResponse = await fetch(proxyUrl, {
-          signal: controller.signal
-        })
-        const proxyData = await proxyResponse.json()
-        html = proxyData.contents || ''
+        
+        if (directResponse.ok) {
+          html = await directResponse.text()
+        } else {
+          throw new Error(`HTTP ${directResponse.status}`)
+        }
+      } catch (directError: any) {
+        console.log('직접 fetch 실패, 프록시 시도:', directError.message)
+        
+        // 프록시 서비스를 순차적으로 시도
+        for (const proxy of proxyServices) {
+          try {
+            console.log(`프록시 시도: ${proxy.name}`)
+            const proxyResponse = await fetch(proxy.url, {
+              signal: controller.signal,
+              headers: {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+              }
+            })
+
+            if (proxyResponse.ok) {
+              html = await proxy.parser(proxyResponse)
+              if (html && html.length > 100) {
+                console.log(`✅ 프록시 성공: ${proxy.name}`)
+                break
+              }
+            }
+          } catch (proxyError: any) {
+            console.log(`프록시 ${proxy.name} 실패:`, proxyError.message)
+            continue
+          }
+        }
       }
 
       clearTimeout(timeoutId)
 
-      if (!html) {
-        throw new Error('뉴스를 가져올 수 없습니다.')
+      if (!html || html.length < 50) {
+        throw new Error('뉴스를 가져올 수 없습니다. CORS 정책으로 인해 일부 사이트는 접근할 수 없습니다.')
       }
 
       let title = ''
