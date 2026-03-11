@@ -262,18 +262,86 @@ ${textToAnalyze}
       try {
         const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}+언어:ko&hl=ko&gl=KR&ceid=KR:ko`
 
-        const response = await fetch(rssUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        // 타임아웃 설정
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 10000)
+
+        let response: Response
+        let xml: string
+
+        try {
+          // 직접 fetch 시도
+          response = await fetch(rssUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+            },
+            signal: controller.signal
+          })
+
+          clearTimeout(timeoutId)
+
+          if (!response.ok) {
+            console.error('❌ RSS 응답 실패:', response.status, response.statusText)
+            continue
           }
-        })
 
-        if (!response.ok) {
-          console.error('❌ RSS 응답 실패:', response.status, response.statusText)
-          continue
+          xml = await response.text()
+        } catch (fetchError: any) {
+          clearTimeout(timeoutId)
+          
+          // CORS 오류나 네트워크 오류 시 프록시 사용
+          if (fetchError.name === 'AbortError' || fetchError.name === 'TypeError') {
+            console.log(`⚠️ 직접 fetch 실패, 프록시 시도: ${query}`)
+            
+            const proxyServices = [
+              `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`,
+              `https://corsproxy.io/?${encodeURIComponent(rssUrl)}`,
+              `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(rssUrl)}`
+            ]
+
+            let proxySuccess = false
+            for (const proxyUrl of proxyServices) {
+              try {
+                const proxyController = new AbortController()
+                const proxyTimeout = setTimeout(() => proxyController.abort(), 8000)
+                
+                const proxyResponse = await fetch(proxyUrl, {
+                  signal: proxyController.signal,
+                  headers: {
+                    'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+                  }
+                })
+
+                clearTimeout(proxyTimeout)
+
+                if (proxyResponse.ok) {
+                  if (proxyUrl.includes('allorigins.win')) {
+                    const data = await proxyResponse.json()
+                    xml = data.contents || ''
+                  } else {
+                    xml = await proxyResponse.text()
+                  }
+                  
+                  if (xml && xml.length > 100) {
+                    proxySuccess = true
+                    console.log(`✅ 프록시로 RSS 가져오기 성공: ${query}`)
+                    break
+                  }
+                }
+              } catch (proxyError) {
+                continue
+              }
+            }
+
+            if (!proxySuccess) {
+              console.error(`❌ 모든 프록시 실패: ${query}`)
+              continue
+            }
+          } else {
+            throw fetchError
+          }
         }
-
-        const xml = await response.text()
 
         const decodeHtml = (str: string) => {
           return str
