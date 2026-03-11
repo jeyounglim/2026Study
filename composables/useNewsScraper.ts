@@ -436,7 +436,7 @@ ${textToAnalyze}
 
       let html: string = ''
 
-      // 여러 프록시 옵션
+      // 여러 프록시 옵션 (더 많은 옵션 추가)
       const proxyServices = [
         {
           name: 'allorigins',
@@ -447,6 +447,20 @@ ${textToAnalyze}
           }
         },
         {
+          name: 'corsproxy',
+          url: `https://corsproxy.io/?${encodeURIComponent(url)}`,
+          parser: async (response: Response) => {
+            return await response.text()
+          }
+        },
+        {
+          name: 'cors-anywhere',
+          url: `https://cors-anywhere.herokuapp.com/${url}`,
+          parser: async (response: Response) => {
+            return await response.text()
+          }
+        },
+        {
           name: 'codetabs',
           url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
           parser: async (response: Response) => {
@@ -454,8 +468,15 @@ ${textToAnalyze}
           }
         },
         {
-          name: 'corsproxy',
-          url: `https://corsproxy.io/?${encodeURIComponent(url)}`,
+          name: 'thingproxy',
+          url: `https://thingproxy.freeboard.io/fetch/${encodeURIComponent(url)}`,
+          parser: async (response: Response) => {
+            return await response.text()
+          }
+        },
+        {
+          name: 'proxy',
+          url: `https://proxy.cors.sh/${url}`,
           parser: async (response: Response) => {
             return await response.text()
           }
@@ -463,45 +484,79 @@ ${textToAnalyze}
       ]
 
       // 먼저 직접 fetch 시도
+      let directSuccess = false
       try {
         const directResponse = await fetch(url, {
           mode: 'cors',
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
           },
           signal: controller.signal
         })
         
         if (directResponse.ok) {
           html = await directResponse.text()
-        } else {
-          throw new Error(`HTTP ${directResponse.status}`)
+          if (html && html.length > 100) {
+            console.log('✅ 직접 fetch 성공')
+            directSuccess = true
+          }
         }
       } catch (directError: any) {
-        console.log('직접 fetch 실패, 프록시 시도:', directError.message)
-        
-        // 프록시 서비스를 순차적으로 시도
+        if (!directSuccess) {
+          console.log('직접 fetch 실패, 프록시 시도:', directError?.message || 'CORS 오류')
+        }
+      }
+      
+      // 직접 fetch 실패 시 프록시 서비스를 순차적으로 시도
+      if (!directSuccess && html.length < 100) {
+        let proxySuccess = false
         for (const proxy of proxyServices) {
+          if (proxySuccess) break
+          
           try {
             console.log(`프록시 시도: ${proxy.name}`)
+            
+            // 각 프록시마다 개별 AbortController 생성
+            const proxyController = new AbortController()
+            const proxyTimeout = setTimeout(() => proxyController.abort(), 10000)
+            
             const proxyResponse = await fetch(proxy.url, {
-              signal: controller.signal,
+              signal: proxyController.signal,
               headers: {
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
               }
             })
 
+            clearTimeout(proxyTimeout)
+
             if (proxyResponse.ok) {
-              html = await proxy.parser(proxyResponse)
-              if (html && html.length > 100) {
+              const parsedHtml = await proxy.parser(proxyResponse)
+              if (parsedHtml && parsedHtml.length > 100) {
+                html = parsedHtml
                 console.log(`✅ 프록시 성공: ${proxy.name}`)
+                proxySuccess = true
                 break
+              } else {
+                console.log(`프록시 ${proxy.name} 응답이 너무 짧음: ${parsedHtml?.length || 0}자`)
               }
+            } else {
+              console.log(`프록시 ${proxy.name} HTTP 오류: ${proxyResponse.status}`)
             }
           } catch (proxyError: any) {
-            console.log(`프록시 ${proxy.name} 실패:`, proxyError.message)
+            if (proxyError.name === 'AbortError') {
+              console.log(`프록시 ${proxy.name} 타임아웃`)
+            } else {
+              console.log(`프록시 ${proxy.name} 실패:`, proxyError.message)
+            }
             continue
           }
+        }
+        
+        // 모든 프록시 실패 시
+        if (!proxySuccess && html.length < 100) {
+          throw new Error('뉴스를 가져올 수 없습니다. CORS 정책으로 인해 일부 사이트는 접근할 수 없습니다. 다른 뉴스 URL을 시도해보세요.')
         }
       }
 
