@@ -365,8 +365,13 @@ ${textToAnalyze}
     keywords: string[],
     relatedArticles: Array<{ title: string; description: string; url: string; matchedKeyword: string }>
   ): string[] => {
-    if (!keywords || keywords.length === 0 || !relatedArticles || relatedArticles.length === 0) {
+    if (!keywords || keywords.length === 0) {
       return keywords
+    }
+
+    // 관련 기사가 없으면 원래 키워드 반환
+    if (!relatedArticles || relatedArticles.length === 0) {
+      return keywords.slice(0, 5)
     }
 
     const allText = relatedArticles
@@ -383,22 +388,34 @@ ${textToAnalyze}
       return { keyword, count }
     })
 
+    // 등장 빈도가 2번 이상인 키워드 우선 선택
     const frequentKeywords = keywordFrequency
       .filter(item => item.count >= 2)
       .sort((a, b) => b.count - a.count)
       .map(item => item.keyword)
 
     if (frequentKeywords.length > 0) {
-      return frequentKeywords.slice(0, 6)
+      // 최소 3개 이상의 키워드가 있으면 반환, 없으면 원래 키워드와 병합
+      if (frequentKeywords.length >= 3) {
+        return frequentKeywords.slice(0, 6)
+      } else {
+        // 빈도 높은 키워드 + 원래 키워드 중 상위 키워드 병합
+        const remainingKeywords = keywords
+          .filter(k => !frequentKeywords.includes(k))
+          .slice(0, 6 - frequentKeywords.length)
+        return [...frequentKeywords, ...remainingKeywords].slice(0, 6)
+      }
     }
 
+    // 등장 빈도가 1번 이상인 키워드
     const atLeastOnce = keywordFrequency
       .filter(item => item.count >= 1)
       .sort((a, b) => b.count - a.count)
       .map(item => item.keyword)
       .slice(0, 5)
 
-    return atLeastOnce.length > 0 ? atLeastOnce : keywords.slice(0, 5)
+    // 최소 2개 이상의 키워드가 있으면 반환, 없으면 원래 키워드 사용
+    return atLeastOnce.length >= 2 ? atLeastOnce : keywords.slice(0, 5)
   }
 
   // 메인 스크래핑 함수
@@ -561,10 +578,32 @@ ${textToAnalyze}
       const filteredKeywords = filterKeywordsByFrequency(keywords, initialArticles)
       console.log('🔑 필터링된 키워드:', filteredKeywords)
 
+      // 필터링된 키워드가 있고, 원래 키워드와 다르면 필터링된 키워드로 다시 검색
       let relatedArticles = initialArticles
-      if (filteredKeywords.length > 0 && filteredKeywords.length < keywords.length) {
+      const keywordsChanged = filteredKeywords.length > 0 && 
+        (filteredKeywords.length !== keywords.length || 
+         !filteredKeywords.every((k, i) => k === keywords[i]))
+      
+      if (keywordsChanged) {
+        console.log('🔄 필터링된 키워드로 재검색 시작...')
         relatedArticles = await searchRelatedArticles(filteredKeywords, url, title, 50, groqApiKey)
         console.log('📰 필터링된 키워드로 찾은 관련 기사 개수:', relatedArticles.length)
+        
+        // 필터링된 키워드로 찾은 기사가 적으면 초기 결과와 병합
+        if (relatedArticles.length < 10 && initialArticles.length > 0) {
+          console.log('⚠️ 필터링된 키워드로 찾은 기사가 적어 초기 결과와 병합')
+          const existingUrls = new Set(relatedArticles.map(a => a.url))
+          const additionalArticles = initialArticles.filter(a => !existingUrls.has(a.url))
+          relatedArticles = [...relatedArticles, ...additionalArticles].slice(0, 50)
+        }
+      } else if (filteredKeywords.length > 0) {
+        // 필터링된 키워드가 있지만 원래 키워드와 같으면 필터링된 키워드로 한 번 더 검색 (더 정확한 결과)
+        console.log('🔄 필터링된 키워드로 정확도 향상을 위한 재검색...')
+        const refinedArticles = await searchRelatedArticles(filteredKeywords, url, title, 50, groqApiKey)
+        if (refinedArticles.length > 0) {
+          relatedArticles = refinedArticles
+          console.log('📰 재검색으로 찾은 관련 기사 개수:', relatedArticles.length)
+        }
       }
 
       return {
