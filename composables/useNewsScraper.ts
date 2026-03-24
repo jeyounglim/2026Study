@@ -84,6 +84,58 @@ export const useNewsScraper = () => {
     return content
   }
 
+  // Groq API를 사용한 기사 요약 생성
+  const generateSummaryWithGPT = async (text: string, groqApiKey: string): Promise<string | null> => {
+    try {
+      const textToSummarize = text.length > 3000 ? text.substring(0, 3000) + '...' : text
+
+      const prompt = `다음 뉴스 기사를 2-3문장으로 핵심 내용만 간결하게 요약해주세요.
+요약은 객관적이고 사실에 기반하여 작성해주세요.
+불필요한 수식어나 감정 표현은 제외하고, 기사의 주요 사실과 내용만 포함해주세요.
+
+기사 본문:
+${textToSummarize}
+
+요약:`
+
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${groqApiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-8b-instant',
+          messages: [
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 200
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Groq API 오류: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const summaryText = data.choices[0]?.message?.content?.trim() || ''
+
+      if (!summaryText) {
+        throw new Error('요약 결과가 비어있습니다.')
+      }
+
+      console.log('✅ GPT로 요약 생성 성공')
+      return summaryText
+    } catch (error) {
+      console.error('❌ GPT 요약 생성 실패:', error)
+      return null
+    }
+  }
+
   // Groq API를 사용한 키워드 추출
   const extractKeywordsWithGPT = async (text: string, groqApiKey?: string): Promise<string[]> => {
     if (!groqApiKey) {
@@ -222,45 +274,24 @@ ${textToAnalyze}
       }
     }
 
-    const searchQueries: string[] = []
-    // 단일 키워드들을 먼저 추가 (각 키워드별로 개별 검색)
-    keywords.forEach(keyword => {
-      if (keyword && keyword.length > 0) {
-        searchQueries.push(keyword)
-      }
-    })
-
-    // 키워드 조합도 추가
-    if (keywords.length >= 2) {
-      searchQueries.push(keywords.slice(0, 2).join(' '))
-      if (keywords.length >= 3) {
-        searchQueries.push(keywords.slice(0, 3).join(' '))
-      }
-      if (keywords.length >= 4) {
-        searchQueries.push(keywords.slice(0, 4).join(' '))
-      }
-      if (keywords.length >= 2) {
-        searchQueries.push(keywords.slice(0, 2).reverse().join(' '))
-      }
-      if (keywords.length >= 3) {
-        searchQueries.push(keywords.slice(1, 3).join(' '))
-      }
-      if (keywords.length >= 4) {
-        searchQueries.push(keywords.slice(1, 4).join(' '))
-      }
+    // AI로 추출된 키워드들을 필터링 (빈 문자열 제외)
+    const validKeywords = keywords.filter(k => k && k.length > 0)
+    
+    if (validKeywords.length === 0) {
+      console.error('❌ 검색할 키워드가 없습니다')
+      return []
     }
 
-    const uniqueQueries = Array.from(new Set(searchQueries.filter(q => q.length > 0)))
-    console.log('🔍 생성된 검색 쿼리:', uniqueQueries)
+    console.log('🔍 AI 추출 키워드:', validKeywords)
 
     let allItems: Array<{ title: string; description: string; url: string; matchedKeyword: string }> = []
-    const targetArticles = maxArticles * 3
 
-    for (const query of uniqueQueries) {
-      if (allItems.length >= targetArticles) break
+    // 각 키워드를 개별적으로 검색
+    for (const keyword of validKeywords) {
+      if (allItems.length >= maxArticles) break // 충분한 결과가 있으면 중단
 
       try {
-        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}+언어:ko&hl=ko&gl=KR&ceid=KR:ko`
+        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword)}+언어:ko&hl=ko&gl=KR&ceid=KR:ko`
 
         // 타임아웃 설정
         const controller = new AbortController()
@@ -283,7 +314,7 @@ ${textToAnalyze}
 
           if (!response.ok) {
             console.error('❌ RSS 응답 실패:', response.status, response.statusText)
-            continue
+            continue // 다음 키워드 시도
           }
 
           xml = await response.text()
@@ -292,7 +323,7 @@ ${textToAnalyze}
           
           // CORS 오류나 네트워크 오류 시 프록시 사용
           if (fetchError.name === 'AbortError' || fetchError.name === 'TypeError') {
-            console.log(`⚠️ 직접 fetch 실패, 프록시 시도: ${query}`)
+            console.log(`⚠️ 직접 fetch 실패, 프록시 시도: ${keyword}`)
             
             const proxyServices = [
               `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`,
@@ -325,7 +356,7 @@ ${textToAnalyze}
                   
                   if (xml && xml.length > 100) {
                     proxySuccess = true
-                    console.log(`✅ 프록시로 RSS 가져오기 성공: ${query}`)
+                    console.log(`✅ 프록시로 RSS 가져오기 성공: ${searchQuery}`)
                     break
                   }
                 }
@@ -335,8 +366,8 @@ ${textToAnalyze}
             }
 
             if (!proxySuccess) {
-              console.error(`❌ 모든 프록시 실패: ${query}`)
-              continue
+              console.error(`❌ 모든 프록시 실패: ${keyword}`)
+              continue // 다음 키워드 시도
             }
           } else {
             throw fetchError
@@ -387,7 +418,7 @@ ${textToAnalyze}
                   title: articleTitle || '제목 없음',
                   description: articleDescription || '',
                   url: articleUrl,
-                  matchedKeyword: query
+                  matchedKeyword: keyword // 어떤 키워드로 검색되었는지 저장
                 })
               }
             } catch (e) {
@@ -396,7 +427,7 @@ ${textToAnalyze}
                   title: articleTitle || '제목 없음',
                   description: articleDescription || '',
                   url: articleUrl,
-                  matchedKeyword: query
+                  matchedKeyword: keyword // 어떤 키워드로 검색되었는지 저장
                 })
               }
             }
@@ -408,18 +439,18 @@ ${textToAnalyze}
         const existingUrls = new Set(allItems.map(item => item.url))
 
         for (const item of items) {
-          if (allItems.length >= targetArticles) break
+          if (allItems.length >= maxArticles) break
           if (!existingUrls.has(item.url)) {
             allItems.push(item)
             existingUrls.add(item.url)
           }
         }
 
-        console.log(`📊 쿼리 "${query}"로 ${items.length}개 기사 찾음, 총 ${allItems.length}개`)
+        console.log(`📊 키워드 "${keyword}"로 ${items.length}개 기사 찾음, 총 ${allItems.length}개`)
 
       } catch (error) {
-        console.error(`❌ 쿼리 "${query}" 검색 오류:`, error)
-        continue
+        console.error(`❌ 키워드 "${keyword}" 검색 오류:`, error)
+        continue // 다음 키워드 시도
       }
     }
 
@@ -687,6 +718,14 @@ ${textToAnalyze}
       console.log('🔑 GROQ API 키 확인:', groqApiKey ? '✅ 설정됨' : '❌ 설정되지 않음')
       let keywords: string[]
 
+      // 기사 요약 생성 (본문이 충분히 있을 때만)
+      let summary: string | null = null
+      if (articleContent && articleContent.length > 200 && groqApiKey) {
+        console.log('📝 AI로 기사 요약 생성 중...')
+        summary = await generateSummaryWithGPT(articleContent, groqApiKey)
+        console.log('✅ 요약 생성 완료')
+      }
+
       if (articleContent && articleContent.length > 100) {
         console.log('🤖 AI로 본문 분석 중...')
         keywords = await extractKeywordsWithGPT(articleContent, groqApiKey)
@@ -743,7 +782,8 @@ ${textToAnalyze}
         currentNews: {
           title,
           description,
-          url
+          url,
+          summary
         },
         keywords: filteredKeywords,
         relatedArticles

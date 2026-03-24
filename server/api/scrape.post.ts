@@ -109,8 +109,29 @@ export default defineEventHandler(async (event) => {
     } else {
       // 본문이 짧거나 없으면 제목+설명으로 키워드 추출
       console.log('⚠️ 본문이 짧아 제목+설명으로 키워드 추출')
-      keywords = await extractKeywordsWithGPT(title + ' ' + description, config.groqApiKey)
+      const titleDescText = `${title} ${description}`.trim()
+      if (titleDescText.length > 10) {
+        keywords = await extractKeywordsWithGPT(titleDescText, config.groqApiKey)
+      } else {
+        // 제목+설명도 없으면 제목만으로 추출
+        keywords = await extractKeywordsWithGPT(title, config.groqApiKey)
+      }
       console.log('🔑 추출된 키워드:', keywords)
+    }
+
+    // 키워드가 비어있으면 제목에서 직접 추출 시도
+    if (!keywords || keywords.length === 0) {
+      console.log('⚠️ 키워드가 비어있어 제목에서 직접 추출 시도')
+      keywords = [title].filter(t => t && t.length > 2)
+      console.log('🔑 제목에서 추출한 키워드:', keywords)
+    }
+
+    // 기사 요약 생성 (본문이 충분히 있을 때만)
+    let summary: string | null = null
+    if (articleContent && articleContent.length > 200 && config.groqApiKey) {
+      console.log('📝 AI로 기사 요약 생성 중...')
+      summary = await generateSummaryWithGPT(articleContent, config.groqApiKey)
+      console.log('✅ 요약 생성 완료')
     }
 
     // 1단계: 원래 키워드로 관련 기사 검색 (키워드 필터링을 위한 샘플)
@@ -129,15 +150,24 @@ export default defineEventHandler(async (event) => {
       console.log('📰 필터링된 키워드로 찾은 관련 기사 개수:', relatedArticles.length)
     }
 
-    return {
+    // 최종 반환 전 로그
+    console.log('📤 최종 반환 데이터:')
+    console.log('  - relatedArticles 개수:', relatedArticles.length)
+    console.log('  - relatedArticles 샘플:', relatedArticles.slice(0, 2).map(a => ({ title: a.title, url: a.url })))
+
+    const result = {
       currentNews: {
         title,
         description,
-        url
+        url,
+        summary
       },
       keywords: filteredKeywords,
-      relatedArticles
+      relatedArticles: relatedArticles || [] // 빈 배열 보장
     }
+
+    console.log('✅ API 응답 준비 완료, relatedArticles:', result.relatedArticles.length)
+    return result
   } catch (err: any) {
     // 타임아웃 에러 처리
     if (err.name === 'AbortError' || err.name === 'TimeoutError') {
@@ -249,6 +279,59 @@ function extractArticleContent(html: string): string {
   }
 
   return content
+}
+
+// Groq API를 사용한 기사 요약 생성
+async function generateSummaryWithGPT(text: string, groqApiKey: string): Promise<string | null> {
+  try {
+    // 본문이 너무 길면 일부만 사용 (AI 토큰 제한 고려)
+    const textToSummarize = text.length > 3000 ? text.substring(0, 3000) + '...' : text
+
+    const prompt = `다음 뉴스 기사를 2-3문장으로 핵심 내용만 간결하게 요약해주세요.
+요약은 객관적이고 사실에 기반하여 작성해주세요.
+불필요한 수식어나 감정 표현은 제외하고, 기사의 주요 사실과 내용만 포함해주세요.
+
+기사 본문:
+${textToSummarize}
+
+요약:`
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 200
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`Groq API 오류: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const summaryText = data.choices[0]?.message?.content?.trim() || ''
+
+    if (!summaryText) {
+      throw new Error('요약 결과가 비어있습니다.')
+    }
+
+    console.log('✅ GPT로 요약 생성 성공')
+    return summaryText
+  } catch (error) {
+    console.error('❌ GPT 요약 생성 실패:', error)
+    return null
+  }
 }
 
 // Groq API를 사용한 키워드 추출 (무료 GPT)
@@ -382,6 +465,204 @@ function extractKeywordsFallback(text: string): string[] {
   return sortedWords.length > 0 ? sortedWords : words.slice(0, 5)
 }
 
+// RSS 피드 파싱 함수 (재사용 가능하도록 분리)
+function parseRSSFeed(xml: string, excludeUrl: string, matchedKeyword: string): Array<{ title: string; description: string; url: string; matchedKeyword: string }> {
+  // HTML 엔티티 디코딩 함수
+  const decodeHtml = (str: string) => {
+    return str
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+  }
+
+  const items: Array<{ title: string; description: string; url: string; matchedKeyword: string }> = []
+
+  // item 태그로 분리하여 파싱
+  const itemMatches = xml.matchAll(/<item>([\s\S]*?)<\/item>/g)
+  const itemArray = Array.from(itemMatches)
+  console.log(`📋 RSS 피드에서 ${itemArray.length}개의 <item> 태그 발견`)
+
+  for (const itemMatch of itemArray) {
+    const itemContent = itemMatch[1]
+
+    // title 추출
+    const titleMatch = itemContent.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) ||
+      itemContent.match(/<title>(.*?)<\/title>/i)
+    const articleTitle = titleMatch ? decodeHtml(titleMatch[1].trim()) : ''
+
+    // link 추출 (Google News는 URL 파라미터에 실제 URL이 있음)
+    const linkMatch = itemContent.match(/<link>(.*?)<\/link>/i)
+    let articleUrl = linkMatch ? linkMatch[1].trim() : ''
+
+    // Google News 링크에서 실제 URL 추출 시도
+    if (articleUrl && articleUrl.includes('news.google.com')) {
+      const urlMatch = articleUrl.match(/url=([^&]+)/)
+      if (urlMatch) {
+        articleUrl = decodeURIComponent(urlMatch[1])
+      }
+    }
+
+    // description 추출
+    const descMatch = itemContent.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/i) ||
+      itemContent.match(/<description>(.*?)<\/description>/i)
+    const articleDescription = descMatch ? decodeHtml(descMatch[1].trim().replace(/<[^>]+>/g, '')) : ''
+
+    // 원본 URL과 다른 기사만 포함
+    if (articleTitle && articleUrl) {
+      try {
+        const excludeHostname = new URL(excludeUrl).hostname
+        const articleHostname = new URL(articleUrl).hostname
+
+        if (articleHostname !== excludeHostname) {
+          items.push({
+            title: articleTitle || '제목 없음',
+            description: articleDescription || '',
+            url: articleUrl,
+            matchedKeyword: matchedKeyword
+          })
+        } else {
+          console.log(`⏭️ 동일 호스트 제외: ${articleHostname}`)
+        }
+      } catch (e) {
+        // URL 파싱 실패 시에도 추가 (상대 URL 등)
+        if (!articleUrl.includes(excludeUrl)) {
+          items.push({
+            title: articleTitle || '제목 없음',
+            description: articleDescription || '',
+            url: articleUrl,
+            matchedKeyword: matchedKeyword
+          })
+        }
+      }
+
+      // 충분한 기사를 수집
+      if (items.length >= 50) break
+    } else {
+      if (!articleTitle) console.log(`⚠️ 제목 없음: URL=${articleUrl?.substring(0, 50)}`)
+      if (!articleUrl) console.log(`⚠️ URL 없음: 제목=${articleTitle?.substring(0, 50)}`)
+    }
+  }
+
+  console.log(`✅ parseRSSFeed 완료: ${items.length}개 기사 파싱 성공`)
+  return items
+}
+
+// Google News RSS fetch with retry and proxy fallback
+async function fetchRSSWithRetry(rssUrl: string, maxRetries: number = 3): Promise<string | null> {
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  ]
+
+  // 프록시 서버 목록
+  const proxyServices = [
+    'https://api.allorigins.win/raw?url=',
+    'https://corsproxy.io/?',
+    'https://api.codetabs.com/v1/proxy?quest='
+  ]
+
+  // 직접 fetch 시도 (서버 사이드에서는 CORS 문제 없음)
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const userAgent = userAgents[attempt % userAgents.length]
+      console.log(`🔄 시도 ${attempt + 1}/${maxRetries}: 직접 fetch`)
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000) // 15초 타임아웃
+
+      try {
+        const response = await fetch(rssUrl, {
+          headers: {
+            'User-Agent': userAgent,
+            'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Cache-Control': 'no-cache'
+          },
+          signal: controller.signal,
+          redirect: 'follow'
+        })
+
+        clearTimeout(timeoutId)
+
+        if (response.ok) {
+          const xml = await response.text()
+          if (xml && xml.length > 100) {
+            console.log(`✅ 직접 fetch 성공 (${xml.length} bytes)`)
+            return xml
+          }
+        } else {
+          console.warn(`⚠️ 직접 fetch 실패: ${response.status} ${response.statusText}`)
+        }
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId)
+        if (fetchError.name === 'AbortError') {
+          console.warn(`⏱️ 타임아웃 (시도 ${attempt + 1})`)
+        } else {
+          console.warn(`⚠️ 직접 fetch 오류 (시도 ${attempt + 1}):`, fetchError.message)
+        }
+      }
+
+      // 재시도 전 잠시 대기
+      if (attempt < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+      }
+    } catch (error: any) {
+      console.warn(`⚠️ 직접 fetch 예외 (시도 ${attempt + 1}):`, error.message)
+    }
+  }
+
+  // 직접 fetch 실패 시 프록시 서버 시도
+  console.log('🔄 프록시 서버로 시도...')
+  for (const proxy of proxyServices) {
+    try {
+      const proxyUrl = proxy + encodeURIComponent(rssUrl)
+      console.log(`📡 프록시 시도: ${proxy.replace(/\/.*$/, '')}`)
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 20000) // 20초 타임아웃
+
+      try {
+        const response = await fetch(proxyUrl, {
+          headers: {
+            'User-Agent': userAgents[0],
+            'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+          },
+          signal: controller.signal,
+          redirect: 'follow'
+        })
+
+        clearTimeout(timeoutId)
+
+        if (response.ok) {
+          const xml = await response.text()
+          if (xml && xml.length > 100) {
+            console.log(`✅ 프록시 fetch 성공 (${xml.length} bytes)`)
+            return xml
+          }
+        } else {
+          console.warn(`⚠️ 프록시 fetch 실패: ${response.status}`)
+        }
+      } catch (proxyError: any) {
+        clearTimeout(timeoutId)
+        if (proxyError.name === 'AbortError') {
+          console.warn(`⏱️ 프록시 타임아웃`)
+        } else {
+          console.warn(`⚠️ 프록시 오류:`, proxyError.message)
+        }
+      }
+    } catch (error: any) {
+      console.warn(`⚠️ 프록시 예외:`, error.message)
+    }
+  }
+
+  console.error('❌ 모든 fetch 시도 실패')
+  return null
+}
+
 async function searchRelatedArticles(keywords: string[], excludeUrl: string, title?: string, maxArticles: number = 20, groqApiKey?: string) {
   // 키워드가 없으면 제목 사용
   if (!keywords || keywords.length === 0) {
@@ -394,190 +675,76 @@ async function searchRelatedArticles(keywords: string[], excludeUrl: string, tit
     }
   }
 
-  // 더 다양한 검색 쿼리 생성
-  const searchQueries: string[] = []
+  // AI로 추출된 키워드들을 필터링 (빈 문자열 제외)
+  const validKeywords = keywords.filter(k => k && k.length > 0)
   
-  // 1. 각 키워드를 개별적으로 검색 (더 다양한 결과를 위해)
-  keywords.forEach(keyword => {
-    if (keyword && keyword.length > 0) {
-      searchQueries.push(keyword)
-    }
-  })
-  
-  // 2. 키워드 조합 검색 (2개씩, 3개씩)
-  if (keywords.length >= 2) {
-    // 상위 2개 키워드
-    searchQueries.push(keywords.slice(0, 2).join(' '))
-    // 상위 3개 키워드
-    if (keywords.length >= 3) {
-      searchQueries.push(keywords.slice(0, 3).join(' '))
-    }
-    // 상위 4개 키워드
-    if (keywords.length >= 4) {
-      searchQueries.push(keywords.slice(0, 4).join(' '))
-    }
-    // 키워드 순서를 바꿔서 검색 (다양성 확보)
-    if (keywords.length >= 2) {
-      searchQueries.push(keywords.slice(0, 2).reverse().join(' '))
-    }
-    // 중간 키워드 조합
-    if (keywords.length >= 3) {
-      searchQueries.push(keywords.slice(1, 3).join(' '))
-    }
-    if (keywords.length >= 4) {
-      searchQueries.push(keywords.slice(1, 4).join(' '))
-    }
+  if (validKeywords.length === 0) {
+    console.error('❌ 검색할 키워드가 없습니다')
+    return []
   }
-  
-  // 중복 제거
-  const uniqueQueries = Array.from(new Set(searchQueries.filter(q => q.length > 0)))
-  
-  console.log('🔍 생성된 검색 쿼리:', uniqueQueries)
 
-  console.log('🔍 관련 기사 검색 시작:', { keywords, searchQueries: uniqueQueries, excludeUrl, maxArticles })
+  console.log('🔍 AI 추출 키워드:', validKeywords)
+  console.log('🔍 관련 기사 검색 시작:', { keywords: validKeywords, excludeUrl, maxArticles })
 
   let allItems: Array<{ title: string; description: string; url: string; matchedKeyword: string }> = []
+  const existingUrls = new Set<string>()
 
-  // 여러 쿼리로 시도 (더 많은 결과를 위해 maxArticles보다 더 많이 수집)
-  // 각 키워드별로 충분한 기사를 수집하기 위해 더 많이 수집
-  const targetArticles = maxArticles * 3 // 최종적으로 더 다양한 결과를 위해 3배 수집
-  
-  for (const query of uniqueQueries) {
-    if (allItems.length >= targetArticles) break // 충분한 결과가 있으면 중단
+  // 각 키워드를 개별적으로 검색 (원래 방식 - 가장 안정적)
+  for (const keyword of validKeywords) {
+    if (allItems.length >= maxArticles) {
+      console.log(`✅ 충분한 기사를 찾았습니다 (${allItems.length}개). 검색 중단.`)
+      break // 충분한 결과가 있으면 중단
+    }
 
     try {
-      // Google News RSS 피드 검색
-      const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}+언어:ko&hl=ko&gl=KR&ceid=KR:ko`
+      // Google News RSS 피드 검색 (각 키워드별로 개별 검색)
+      // 키워드에 공백이 있으면 따옴표로 감싸기
+      const searchQuery = keyword.includes(' ') ? `"${keyword}"` : keyword
+      const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}+언어:ko&hl=ko&gl=KR&ceid=KR:ko`
 
-      console.log('📡 RSS URL:', rssUrl)
+      console.log(`📡 키워드 "${keyword}" 검색 중...`)
 
-      const response = await fetch(rssUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      })
+      // 재시도 및 프록시 fallback이 포함된 fetch
+      const xml = await fetchRSSWithRetry(rssUrl, 3)
 
-      if (!response.ok) {
-        console.error('❌ RSS 응답 실패:', response.status, response.statusText)
-        continue // 다음 쿼리 시도
+      if (!xml || xml.length < 100) {
+        console.warn(`⚠️ 키워드 "${keyword}" RSS 응답이 없거나 너무 짧습니다.`)
+        continue
       }
 
-      const xml = await response.text()
-      console.log('✅ RSS 응답 받음, XML 길이:', xml.length)
+      console.log(`✅ 키워드 "${keyword}" RSS 응답 받음, XML 길이:`, xml.length)
 
-      // HTML 엔티티 디코딩 함수
-      const decodeHtml = (str: string) => {
-        return str
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"')
-          .replace(/&#39;/g, "'")
-          .replace(/&nbsp;/g, ' ')
-      }
+      const items = parseRSSFeed(xml, excludeUrl, keyword)
 
-      // 간단한 RSS 파싱
-      const items: Array<{ title: string; description: string; url: string; matchedKeyword: string }> = []
-
-      // item 태그로 분리하여 파싱
-      const itemMatches = xml.matchAll(/<item>([\s\S]*?)<\/item>/g)
-
-      for (const itemMatch of itemMatches) {
-        const itemContent = itemMatch[1]
-
-        // title 추출
-        const titleMatch = itemContent.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) ||
-          itemContent.match(/<title>(.*?)<\/title>/i)
-        const articleTitle = titleMatch ? decodeHtml(titleMatch[1].trim()) : ''
-
-        // link 추출 (Google News는 URL 파라미터에 실제 URL이 있음)
-        const linkMatch = itemContent.match(/<link>(.*?)<\/link>/i)
-        let articleUrl = linkMatch ? linkMatch[1].trim() : ''
-
-        // Google News 링크에서 실제 URL 추출 시도
-        if (articleUrl && articleUrl.includes('news.google.com')) {
-          const urlMatch = articleUrl.match(/url=([^&]+)/)
-          if (urlMatch) {
-            articleUrl = decodeURIComponent(urlMatch[1])
-          }
-        }
-
-        // description 추출
-        const descMatch = itemContent.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/i) ||
-          itemContent.match(/<description>(.*?)<\/description>/i)
-        const articleDescription = descMatch ? decodeHtml(descMatch[1].trim().replace(/<[^>]+>/g, '')) : ''
-
-        // 원본 URL과 다른 기사만 포함
-        if (articleTitle && articleUrl) {
-          try {
-            const excludeHostname = new URL(excludeUrl).hostname
-            const articleHostname = new URL(articleUrl).hostname
-
-            if (articleHostname !== excludeHostname) {
-              items.push({
-                title: articleTitle || '제목 없음',
-                description: articleDescription || '',
-                url: articleUrl,
-                matchedKeyword: query // 어떤 키워드로 검색되었는지 저장
-              })
-            }
-          } catch (e) {
-            // URL 파싱 실패 시에도 추가 (상대 URL 등)
-            if (!articleUrl.includes(excludeUrl)) {
-              items.push({
-                title: articleTitle || '제목 없음',
-                description: articleDescription || '',
-                url: articleUrl,
-                matchedKeyword: query // 어떤 키워드로 검색되었는지 저장
-              })
-            }
-          }
-        }
-
-        // 각 쿼리별로 충분한 기사를 수집 (쿼리별로는 더 많이 수집 후 중복 제거)
-        // 각 키워드별로 최소 10개씩은 수집할 수 있도록 충분히 수집
-        if (items.length >= 50) break
-      }
-
-      // 중복 제거를 위한 URL Set
-      const existingUrls = new Set(allItems.map(item => item.url))
-
-      // 새로운 기사만 추가 (더 많은 결과를 위해 targetArticles까지 수집)
+      // 새로운 기사만 추가 (중복 제거)
       for (const item of items) {
-        if (allItems.length >= targetArticles) break
+        if (allItems.length >= maxArticles) break
         if (!existingUrls.has(item.url)) {
           allItems.push(item)
           existingUrls.add(item.url)
         }
       }
 
-      console.log(`📊 쿼리 "${query}"로 ${items.length}개 기사 찾음, 총 ${allItems.length}개`)
+      console.log(`📊 키워드 "${keyword}"로 ${items.length}개 기사 찾음, 총 ${allItems.length}개`)
 
-    } catch (error) {
-      console.error(`❌ 쿼리 "${query}" 검색 오류:`, error)
-      continue // 다음 쿼리 시도
+    } catch (error: any) {
+      console.error(`❌ 키워드 "${keyword}" 검색 오류:`, error.message)
+      continue // 다음 키워드 시도
     }
   }
 
   console.log('📊 최종 파싱된 기사 개수:', allItems.length)
 
-  // 결과를 셔플하여 더 다양한 순서로 제공 (같은 키워드로 찾은 기사들이 몰리지 않도록)
+  // 결과를 셔플하여 더 다양한 순서로 제공
   const shuffled = [...allItems].sort(() => Math.random() - 0.5)
   
-  // 최종적으로 요청한 개수만큼만 반환 (더 많은 기사를 보여주기 위해 제한 완화)
-  // maxArticles보다 더 많이 반환하여 각 키워드별로 충분한 기사 제공
+  // 최종적으로 요청한 개수만큼만 반환
   const finalResults = shuffled.slice(0, maxArticles)
   
   console.log('📊 최종 반환 기사 개수:', finalResults.length)
-  console.log('📊 키워드별 기사 분포:', 
-    finalResults.reduce((acc, item) => {
-      acc[item.matchedKeyword] = (acc[item.matchedKeyword] || 0) + 1
-      return acc
-    }, {} as Record<string, number>)
-  )
 
-  // 결과가 있으면 반환, 없으면 빈 배열 반환
-  return finalResults.length > 0 ? finalResults : []
+  // 결과 반환 (빈 배열이어도 반환)
+  return finalResults
 }
 
 // 관련 기사에서 자주 등장하는 키워드만 필터링
