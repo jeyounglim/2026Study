@@ -556,14 +556,12 @@ const getKeywordCount = (keyword: string) => {
 
 const { bookmarks, isBookmarked, toggleBookmark, removeBookmark, clearAllBookmarks, refreshBookmarks } = useBookmarks()
 const { validateSEO: validateSEOFromComposable } = useSEOValidator()
+const { scrapeNews: scrapeNewsFromComposable } = useNewsScraper()
 
 // 서버 API를 직접 호출하는 함수
 const scrapeNewsFromAPI = async (url: string) => {
-  const response = await $fetch('/api/scrape', {
-    method: 'POST',
-    body: { url }
-  })
-  return response
+  // GitHub Pages(정적 배포)에서도 동작하도록 클라이언트 스크래퍼 사용
+  return await scrapeNewsFromComposable(url)
 }
 
 const showBookmarksModal = ref(false)
