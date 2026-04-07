@@ -261,7 +261,8 @@ ${textToAnalyze}
     keywords: string[],
     excludeUrl: string,
     title?: string,
-    maxArticles: number = 20,
+    maxArticles: number = 250,
+    perKeywordLimit: number = 50,
     groqApiKey?: string
   ) => {
     if (!keywords || keywords.length === 0) {
@@ -300,7 +301,7 @@ ${textToAnalyze}
         const timeoutId = setTimeout(() => controller.abort(), 10000)
 
         let response: Response
-        let xml: string
+        let xml: string = ''
 
         try {
           // 직접 fetch 시도
@@ -387,6 +388,10 @@ ${textToAnalyze}
         }
 
         const items: Array<{ title: string; description: string; url: string; matchedKeyword: string }> = []
+        if (!xml || xml.length < 50) {
+          console.log(`⚠️ RSS 내용이 비어있음: ${keyword}`)
+          continue
+        }
         const itemMatches = xml.matchAll(/<item>([\s\S]*?)<\/item>/g)
 
         for (const itemMatch of itemMatches) {
@@ -439,12 +444,14 @@ ${textToAnalyze}
         }
 
         const existingUrls = new Set(allItems.map(item => item.url))
-
+        let addedForThisKeyword = 0
         for (const item of items) {
           if (allItems.length >= maxArticles) break
+          if (addedForThisKeyword >= perKeywordLimit) break
           if (!existingUrls.has(item.url)) {
             allItems.push(item)
             existingUrls.add(item.url)
+            addedForThisKeyword += 1
           }
         }
 
@@ -739,7 +746,7 @@ ${textToAnalyze}
       }
 
       // 1단계: 초기 키워드로 관련 기사 검색
-      const initialArticles = await searchRelatedArticles(keywords, url, title, 50, groqApiKey)
+      const initialArticles = await searchRelatedArticles(keywords, url, title, 250, 50, groqApiKey)
       console.log('📰 초기 관련 기사 개수:', initialArticles.length)
 
       // 2단계: 관련 기사에서 자주 등장하는 키워드만 필터링
@@ -752,7 +759,7 @@ ${textToAnalyze}
       
       if (filteredKeywords.length > 0) {
         console.log('🔄 필터링된 키워드로 재검색 시작...')
-        const refinedArticles = await searchRelatedArticles(filteredKeywords, url, title, 50, groqApiKey)
+        const refinedArticles = await searchRelatedArticles(filteredKeywords, url, title, 250, 50, groqApiKey)
         console.log('📰 필터링된 키워드로 찾은 관련 기사 개수:', refinedArticles.length)
         
         if (refinedArticles.length > 0) {
@@ -760,13 +767,13 @@ ${textToAnalyze}
           relatedArticles = refinedArticles
           
           // 필터링된 키워드로 찾은 기사가 적으면 초기 결과와 병합
-          if (refinedArticles.length < 20 && initialArticles.length > 0) {
+          if (refinedArticles.length < 200 && initialArticles.length > 0) {
             console.log('⚠️ 필터링된 키워드로 찾은 기사가 적어 초기 결과와 병합')
             const existingUrls = new Set(refinedArticles.map(a => a.url))
             const additionalArticles = initialArticles
               .filter(a => !existingUrls.has(a.url))
-              .slice(0, 30) // 최대 30개만 추가
-            relatedArticles = [...refinedArticles, ...additionalArticles].slice(0, 50)
+              .slice(0, 250) // 최대 250개까지 추가
+            relatedArticles = [...refinedArticles, ...additionalArticles].slice(0, 250)
             console.log('📰 병합 후 총 기사 개수:', relatedArticles.length)
           }
         } else {
@@ -793,7 +800,7 @@ ${textToAnalyze}
         for (const q of fallbackQueries) {
           if (fallbackResults.length > 0) break
           try {
-            const fr = await searchRelatedArticles([q], url, title, 30, groqApiKey)
+            const fr = await searchRelatedArticles([q], url, title, 250, 50, groqApiKey)
             if (fr.length > 0) {
               fallbackResults = fr
               console.log(`✅ 폴백 쿼리 성공: ${q} -> ${fr.length}건`)
