@@ -291,7 +291,9 @@ ${textToAnalyze}
       if (allItems.length >= maxArticles) break // 충분한 결과가 있으면 중단
 
       try {
-        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword)}+언어:ko&hl=ko&gl=KR&ceid=KR:ko`
+        // Google News RSS: 언어/지역은 hl/gl/ceid로 지정하고, 쿼리에는 when:7d로 최근 기사 가중
+        const query = `${keyword} when:7d`
+        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=ko&gl=KR&ceid=KR:ko`
 
         // 타임아웃 설정
         const controller = new AbortController()
@@ -356,7 +358,7 @@ ${textToAnalyze}
                   
                   if (xml && xml.length > 100) {
                     proxySuccess = true
-                    console.log(`✅ 프록시로 RSS 가져오기 성공: ${searchQuery}`)
+                    console.log(`✅ 프록시로 RSS 가져오기 성공: ${keyword}`)
                     break
                   }
                 }
@@ -776,6 +778,34 @@ ${textToAnalyze}
         console.log('⚠️ 필터링된 키워드가 없어 초기 결과 사용')
         // 필터링된 키워드가 없으면 초기 결과 사용
         relatedArticles = initialArticles
+      }
+
+      // 4단계: 여전히 결과가 없으면 제목/상위 키워드 조합으로 폴백 검색
+      if ((!relatedArticles || relatedArticles.length === 0) && (title || keywords.length > 0)) {
+        console.log('🛟 폴백 검색 시작 (제목/상위 키워드 조합)')
+        const topKeywords = (keywords || []).slice(0, 2)
+        const fallbackQueries: string[] = []
+        if (title) fallbackQueries.push(`"${title}"`)
+        if (topKeywords.length >= 2) fallbackQueries.push(`${topKeywords[0]} ${topKeywords[1]}`)
+        if (topKeywords.length === 1) fallbackQueries.push(topKeywords[0])
+
+        let fallbackResults: typeof relatedArticles = []
+        for (const q of fallbackQueries) {
+          if (fallbackResults.length > 0) break
+          try {
+            const fr = await searchRelatedArticles([q], url, title, 30, groqApiKey)
+            if (fr.length > 0) {
+              fallbackResults = fr
+              console.log(`✅ 폴백 쿼리 성공: ${q} -> ${fr.length}건`)
+            }
+          } catch (e) {
+            // 다음 폴백으로 진행
+          }
+        }
+
+        if (fallbackResults.length > 0) {
+          relatedArticles = fallbackResults
+        }
       }
 
       return {
